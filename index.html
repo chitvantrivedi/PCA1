@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PCA in 3D: three variables to two components</title>
+<style>
+:root{--bg:#f6f7f4;--fg:#1c2321;--mut:#65706b;--card:#fff;--bd:#d5dad5;--A:#1d4ed8;--B:#d9480f;--C:#7c3aed;--ok:#15803d;--bad:#b91c1c;--hl:#fff3bf;--grid:#e6e9e4;--pt:52%;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#14181a;--fg:#e7ece9;--mut:#9aa6a0;--card:#1c2225;--bd:#344;--A:#6ea0ff;--B:#ff9a63;--C:#a78bfa;--ok:#4ade80;--bad:#f87171;--hl:#4a4113;--grid:#262e31;--pt:62%}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#14181a;--fg:#e7ece9;--mut:#9aa6a0;--card:#1c2225;--bd:#344;--A:#6ea0ff;--B:#ff9a63;--C:#a78bfa;--ok:#4ade80;--bad:#f87171;--hl:#4a4113;--grid:#262e31;--pt:62%}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 "Source Serif 4",Georgia,"Times New Roman",serif}
+button,input,table,.f{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1020px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.7rem;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--mut);margin:0 0 16px}
+.grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.box{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:14px;min-width:0}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 0}
+.ctl button{background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:8px 14px;font-size:.95rem;cursor:pointer}
+.ctl button.p{background:var(--A);border-color:var(--A);color:#fff}
+.ctl button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--A);outline-offset:2px}
+.ctl label{font-size:.85rem;color:var(--mut);display:flex;align-items:center;gap:6px}
+.prog{height:6px;background:var(--grid);border-radius:3px;overflow:hidden;margin:2px 0}
+.prog i{display:block;height:100%;background:var(--A);transition:width .3s}
+.say{background:var(--hl);border-radius:6px;padding:10px 12px;margin:0 0 10px}
+svg{width:100%;height:auto;display:block;background:var(--card);border-radius:6px}
+#sv{touch-action:none;cursor:grab}
+table{border-collapse:collapse;font-size:.92rem;margin:6px 0}
+th,td{padding:5px 10px;text-align:center;border:1px solid var(--bd)}
+th{color:var(--mut);font-weight:500;font-size:.85rem}
+.f{font-size:.85rem;color:var(--mut)}
+.bar{margin:5px 0}.bar>div{height:18px;background:var(--grid);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;transition:width .7s}
+.row{display:flex;justify-content:space-between;font-size:.85rem}
+.hide{display:none}
+.draw{stroke-dasharray:1;stroke-dashoffset:1;animation:dr 1s forwards}
+@keyframes dr{to{stroke-dashoffset:0}}
+@media(prefers-reduced-motion:reduce){.draw{animation:none;stroke-dashoffset:0}}
+input[type=range]{width:130px}
+</style></head><body><main>
+<h1>PCA with three variables: from 3D to the best 2D</h1>
+<p class="sub">See how PC1 and PC2 are found, how each original variable maps onto them, and why two components keep the most information.</p>
+<div class="grid">
+ <div class="box">
+  <svg id="sv" viewBox="0 0 340 340" role="img" aria-label="Rotatable 3D point cloud"></svg>
+  <div class="f" style="margin-top:6px">Drag the plot to rotate it.</div>
+  <div id="vbox" class="hide"><div class="f" id="ct" style="margin-top:8px"></div><svg id="vp" viewBox="0 0 340 120" role="img" aria-label="Variance of projections"></svg></div>
+ </div>
+ <div class="box"><div class="say" id="say"></div><div id="side"></div></div>
+</div>
+<div class="box" style="margin-top:14px">
+ <div class="prog"><i id="pg" style="width:0"></i></div><div class="f" id="pl"></div>
+ <div class="ctl">
+  <button id="bR">Reset</button><button id="bP">Back</button><button id="bN" class="p">Next step</button><button id="bA">Auto-play</button>
+  <label>Speed <input type="range" id="sp" min="1500" max="7000" value="4000" step="250" style="direction:rtl"></label>
+ </div>
+ <div class="ctl">
+  <label>Cloud thickness <input type="range" id="fl" min="10" max="100" value="35"><span id="flv">0.35</span></label>
+  <button id="bD">New data</button>
+  <label><input type="checkbox" id="spin" checked> Spin</label>
+ </div>
+</div>
+<script>
+const $=id=>document.getElementById(id),f=x=>String(+x.toFixed(2)),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],pc=x=>Math.round(x*100)+'%';
+const RM=matchMedia('(prefers-reduced-motion:reduce)').matches,MAX=7,OFF=.87,ease=k=>k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+let step=0,seed=5,D={},E=[],l=[],P={mc:0,f1:0,rho:0,f3:0,yaw:-.7,pitch:.4},tw=null,sw=null,cam0=null,drag=0,timer=null;
+const TG=[{mc:0,f1:0,rho:0,f3:0},{mc:1,f1:0,rho:0,f3:0},{mc:1,f1:0,rho:0,f3:0},{mc:1,f1:0,rho:0,f3:0},{mc:1,f1:1,rho:0,f3:0},{mc:1,f1:0,rho:1,f3:0},{mc:1,f1:0,rho:1,f3:1},{mc:1,f1:0,rho:1,f3:1}];
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function eig(A){let V=[[1,0,0],[0,1,0],[0,0,1]],a=A.map(r=>r.slice());
+ for(let it=0;it<60;it++){let p=0,q=1,m=Math.abs(a[0][1]);if(Math.abs(a[0][2])>m){p=0;q=2;m=Math.abs(a[0][2])}if(Math.abs(a[1][2])>m){p=1;q=2;m=Math.abs(a[1][2])}
+  if(m<1e-12)break;const t=.5*Math.atan2(2*a[p][q],a[q][q]-a[p][p]),c=Math.cos(t),s=Math.sin(t);
+  for(let k=0;k<3;k++){const x=a[k][p],y=a[k][q];a[k][p]=c*x-s*y;a[k][q]=s*x+c*y}
+  for(let k=0;k<3;k++){const x=a[p][k],y=a[q][k];a[p][k]=c*x-s*y;a[q][k]=s*x+c*y}
+  for(let k=0;k<3;k++){const x=V[k][p],y=V[k][q];V[k][p]=c*x-s*y;V[k][q]=s*x+c*y}}
+ return[0,1,2].map(k=>({v:a[k][k],e:[V[0][k],V[1][k],V[2][k]]})).sort((x,y)=>y.v-x.v)}
+function gen(){
+ const R=rng(seed),g=()=>Math.sqrt(-2*Math.log(1-R()))*Math.cos(2*Math.PI*R()),th=+$('fl').value/100,n=50,A=.6,B=.5,C=.4,c=Math.cos,s=Math.sin;
+ const rot=v=>{let[x,y,z]=v,y1=y*c(C)-z*s(C),z1=y*s(C)+z*c(C);y=y1;z=z1;let x1=x*c(B)+z*s(B),z2=-x*s(B)+z*c(B);x=x1;z=z2;return[x*c(A)-y*s(A),x*s(A)+y*c(A),z]};
+ const raw=[];for(let i=0;i<n;i++){const v=rot([2.2*g(),1.3*g(),th*g()]);raw.push([v[0]+3,v[1]+2.5,v[2]+2])}
+ const m=[0,1,2].map(k=>raw.reduce((a,p)=>a+p[k],0)/n),cent=raw.map(p=>p.map((v,k)=>v-m[k]));
+ const Cv=[0,1,2].map(i=>[0,1,2].map(j=>cent.reduce((a,p)=>a+p[i]*p[j],0)/n)),ev=eig(Cv);
+ E=ev.map(x=>x.e);l=ev.map(x=>x.v);
+ for(let k=0;k<2;k++){let ix=0;for(let j=1;j<3;j++)if(Math.abs(E[k][j])>Math.abs(E[k][ix]))ix=j;if(E[k][ix]<0)E[k]=E[k].map(v=>-v)}
+ E[2]=[E[0][1]*E[1][2]-E[0][2]*E[1][1],E[0][2]*E[1][0]-E[0][0]*E[1][2],E[0][0]*E[1][1]-E[0][1]*E[1][0]];
+ const t1=cent.map(p=>dot(p,E[0])),lo=Math.min(...t1),hi=Math.max(...t1);
+ D={raw,m,cent,Cv,n,tot:l[0]+l[1]+l[2],hue:t1.map(v=>230-(v-lo)/(hi-lo)*200)};
+}
+const vdir=u=>{let s=0;for(let i=0;i<3;i++)for(let j=0;j<3;j++)s+=u[i]*D.Cv[i][j]*u[j];return s};
+const cand=(k,p)=>{if(k==3){const t=Math.PI*p,h=7*Math.PI*p;return[Math.sin(t)*Math.cos(h),Math.sin(t)*Math.sin(h),Math.cos(t)]}const a=Math.PI*p-OFF,c=Math.cos(a),s=Math.sin(a);return E[1].map((v,i)=>c*v+s*E[2][i])};
+function startSweep(k,delay){sw={kind:k,t0:performance.now()+delay,p:0,x:0,done:0,u:cand(k,0),s:Array.from({length:121},(_,i)=>vdir(cand(k,i/120)))}}
+function updSweep(now){if(!sw||sw.done)return;const t=now-sw.t0,d=RM?10:4500,st=RM?10:900;if(t<0)return;
+ if(t<d){sw.p=t/d;sw.x=sw.p;sw.u=cand(sw.kind,sw.p)}
+ else{const e=ease(Math.min(1,(t-d)/st));sw.p=1;
+  if(sw.kind==3){const u0=cand(3,1),tg=dot(u0,E[0])<0?E[0].map(v=>-v):E[0],m=u0.map((v,i)=>v+(tg[i]-v)*e),L=Math.hypot(...m);sw.u=m.map(v=>v/L);sw.x=1}
+  else{const a=-OFF*(1-e);sw.u=E[1].map((v,i)=>Math.cos(a)*v+Math.sin(a)*E[2][i]);sw.x=(a+OFF)/Math.PI}
+  if(t>=d+st)sw.done=1}}
+/* geometry */
+function ptPos(i,f3){const r=D.raw[i];let c=r.map((v,k)=>v-P.mc*D.m[k]);const t1=dot(c,E[0]);if(P.f1)c=c.map((v,k)=>v-P.f1*t1*E[0][k]);
+ const t=[dot(c,E[0]),dot(c,E[1]),dot(c,E[2])],m=c.map((v,k)=>(1-P.rho)*v+P.rho*t[k]);m[2]*=1-f3;return m}
+const U=[[1,0,0],[0,1,0],[0,0,1]];
+const oDir=j=>[0,1,2].map(k=>(1-P.rho)*U[j][k]+P.rho*E[k][j]);
+const pDir=k=>[0,1,2].map(i=>(1-P.rho)*E[k][i]+P.rho*U[k][i]);
+function pj(p){const cy=Math.cos(P.yaw),sy=Math.sin(P.yaw),cp=Math.cos(P.pitch),sp=Math.sin(P.pitch),x1=p[0]*cy+p[2]*sy,z1=-p[0]*sy+p[2]*cy;return[170+14.5*x1,170-14.5*(p[1]*cp-z1*sp),p[1]*sp+z1*cp]}
+const sc=(d,k)=>d.map(v=>v*k);
+function ln(a,b,at){const p=pj(a),q=pj(b);return'<line x1="'+p[0]+'" y1="'+p[1]+'" x2="'+q[0]+'" y2="'+q[1]+'" '+at+'/>'}
+function quad(a,b,col){const c=[[1,1],[1,-1],[-1,-1],[-1,1]].map(s=>pj(a.map((v,i)=>7*(s[0]*v+s[1]*b[i]))));return'<polygon points="'+c.map(p=>p[0]+','+p[1]).join(' ')+'" fill="'+col+'" fill-opacity=".12" stroke="'+col+'" stroke-opacity=".5"/>'}
+const tx=(p,t,col,w)=>{const q=pj(p);return'<text x="'+q[0]+'" y="'+q[1]+'" font-size="11" font-weight="'+(w||400)+'" fill="'+col+'" text-anchor="middle">'+t+'</text>'};
+function render(){
+ let g='';
+ if(step==4)g+=quad(pDir(1),pDir(2),'var(--B)');
+ if(step>=6)g+=quad(pDir(0),pDir(1),'var(--ok)');
+ for(let j=0;j<3;j++){const d=oDir(j);g+=ln(sc(d,-9),sc(d,9),'stroke="var(--mut)" stroke-width="1.2" opacity=".7"')+tx(sc(d,10.3),'V'+(j+1),'var(--mut)')}
+ const cols=['var(--ok)','var(--B)','var(--C)'];
+ for(let k=0;k<3;k++)if(k==0?step>=4:k==1?(step>=5||(step==4&&sw&&sw.done)):step>=5){const d=pDir(k);g+=ln(sc(d,-9),sc(d,9),'stroke="'+cols[k]+'" stroke-width="2.6"')+tx(sc(d,10.4),'PC'+(k+1),cols[k],700)}
+ if(step==1||(step<4&&P.mc<1)){const q=D.m.map(v=>v*(1-P.mc)),a=pj(q);g+='<circle cx="'+a[0]+'" cy="'+a[1]+'" r="6" fill="none" stroke="var(--fg)" stroke-width="2"/>'}
+ const pts=[];for(let i=0;i<D.n;i++)pts.push({i,p:ptPos(i,P.f3)});
+ const u=sw&&(step==3||step==4)?sw.u:null;
+ if(u)g+=ln(sc(u,-10),sc(u,10),'stroke="var(--ok)" stroke-width="2.2"');
+ pts.forEach(o=>{if(u){const q=dot(o.p,u),a=pj(o.p),b=pj(sc(u,q));g+='<line x1="'+a[0]+'" y1="'+a[1]+'" x2="'+b[0]+'" y2="'+b[1]+'" stroke="var(--mut)" stroke-width=".7" opacity=".7"/><circle cx="'+b[0]+'" cy="'+b[1]+'" r="2.3" fill="var(--ok)"/>'}
+  if(P.f3>.01){const a=pj(ptPos(o.i,0)),b=pj(o.p);g+='<line x1="'+a[0]+'" y1="'+a[1]+'" x2="'+b[0]+'" y2="'+b[1]+'" stroke="var(--bad)" stroke-width="1.1" opacity=".6"/>'}});
+ pts.map(o=>({i:o.i,q:pj(o.p)})).sort((a,b)=>a.q[2]-b.q[2]).forEach(o=>{g+='<circle cx="'+o.q[0]+'" cy="'+o.q[1]+'" r="'+Math.max(2.5,4.3+o.q[2]*.12)+'" style="fill:hsl('+D.hue[o.i]+' 70% var(--pt))" stroke="var(--card)" stroke-width="1"/>'});
+ $('sv').innerHTML=g;chart();updR();
+}
+function chart(){const b=$('vbox');if(!sw||step<3||step>4){b.classList.add('hide');return}b.classList.remove('hide');
+ const mx=l[sw.kind==3?0:1]*1.2,W=v=>20+v*300,H=v=>105-v/mx*90,n=Math.floor(sw.p*120);let d='';
+ for(let i=0;i<=n;i++)d+=(i?'L':'M')+W(i/120)+' '+H(sw.s[i]);
+ $('ct').textContent=sw.kind==3?'Variance kept by each line tried (search path, left to right)':'Variance kept by each line in the plane, by angle (0° to 180°)';
+ let g='<line x1="20" y1="105" x2="320" y2="105" stroke="var(--mut)"/><path d="'+d+'" fill="none" stroke="var(--A)" stroke-width="2"/>';
+ const cur=vdir(sw.u);g+='<circle cx="'+W(sw.x)+'" cy="'+H(cur)+'" r="5" fill="var(--ok)"/>';
+ if(sw.done){const t=l[sw.kind==3?0:1];g+='<line x1="20" y1="'+H(t)+'" x2="320" y2="'+H(t)+'" stroke="var(--ok)" stroke-dasharray="4 4"/><text x="318" y="'+(H(t)-5)+'" font-size="10" text-anchor="end" fill="var(--ok)">highest possible = '+f(t)+'</text>'}
+ $('vp').innerHTML=g}
+function updR(){const v=$('vv');if(!v||!sw)return;const c=vdir(sw.u);v.textContent=f(c)+' ('+pc(c/D.tot)+' of total)';
+ const bs=Math.max(...sw.s.slice(0,Math.floor(sw.p*120)+1));$('bst').textContent=sw.done?(sw.kind==3?'Best direction: variance '+f(l[0])+', the first eigenvalue. This line is PC1.':'Best direction in this plane: variance '+f(l[1])+'. This is PC2. The weakest direction, 90° away, is PC3 ('+f(l[2])+').'):'Best so far: '+f(bs)}
+/* side panel */
+const bars=(t,v,n,c)=>'<div class="f" style="margin-top:8px">'+t+'</div>'+v.map((x,i)=>'<div class="bar"><div class="row"><span>'+n[i]+'</span><b>'+pc(x)+'</b></div><div><i style="width:'+x*100+'%;background:'+c[i]+'"></i></div></div>').join('');
+const eq=k=>'PC'+(k+1)+' = '+[0,1,2].map(j=>{const w=E[k][j];return(j?(w<0?' − ':' + '):(w<0?'−':''))+f(Math.abs(w))+'·V'+(j+1)}).join('');
+function side(){
+ const T=l.map(v=>v/D.tot),Cv=D.Cv,mxc=Math.max(...Cv.flat().map(Math.abs));
+ const say=['<b>Three variables.</b> Each point is a position in 3D, one coordinate per variable. Drag to look around. The cloud is not round: it is a tilted, flattened slab, so the variables partly repeat each other.',
+ '<b>Center the data.</b> Subtract each variable’s mean so the cloud sits on the origin and the axes can pivot around its middle.',
+ '<b>Covariance matrix.</b> The diagonal shows each variable’s variance. The off-diagonal cells show what two variables share. Strong off-diagonal values mean redundancy.',
+ '<b>PC1: the direction of greatest spread.</b> Try many lines through the center. For each one, drop all points onto it (green dots) and measure the variance of those dots. The line that keeps the most variance becomes PC1.',
+ '<b>PC2: the best direction PC1 has not used.</b> Slide every point flat onto the plane perpendicular to PC1, which removes PC1’s share. In that plane, spin a line again. The highest-variance direction is PC2, and it is perpendicular to PC1 by construction.',
+ '<b>PC3 and the new axes.</b> Only one direction is left, perpendicular to both: PC3. Put PC1 back and rotate the view so PC1, PC2 and PC3 become the axes. The cloud is the same, only the viewpoint changed. Variances come out sorted: PC1 ≥ PC2 ≥ PC3.',
+ '<b>Keep two components.</b> Flatten PC3. It had little spread, so points barely move. The red lines are the information lost. Three columns are now described by two.',
+ '<b>How the variables map to PC1 and PC2.</b> Each PC is a weighted mix of the original variables. Look straight down at the PC1–PC2 plane: each original axis is an arrow whose horizontal reach is its weight in PC1 and vertical reach is its weight in PC2.'];
+ $('say').innerHTML=say[step];let h='';
+ if(step==0)h='<p class="f">Variances of the variables: V1 '+f(Cv[0][0])+', V2 '+f(Cv[1][1])+', V3 '+f(Cv[2][2])+'. Total variance = <b>'+f(D.tot)+'</b>. PCA keeps this total fixed and re-slices it.</p>';
+ if(step==1)h='<p class="f">Means: V1 '+f(D.m[0])+', V2 '+f(D.m[1])+', V3 '+f(D.m[2])+'. The ring marks the mean and moves to the origin.</p>';
+ if(step==2)h='<table>'+[0,1,2].map(i=>'<tr><th>V'+(i+1)+'</th>'+[0,1,2].map(j=>'<td style="background:rgba(29,78,216,'+(Math.abs(Cv[i][j])/mxc*.45)+')">'+f(Cv[i][j])+'</td>').join('')+'</tr>').join('')+'</table><p class="f">Darker cells share more information. Because the off-diagonal values are large, no single variable is independent of the others.</p>';
+ if(step==3||step==4)h='<p>Variance kept by this line: <b id="vv"></b></p><p class="f" id="bst"></p><p class="f">Total variance is '+f(D.tot)+', so no line can keep more than the peak.</p>';
+ if(step==5)h='<table><tr><th></th><th>Variance</th><th>Share</th><th>Running total</th></tr>'+[0,1,2].map(k=>'<tr><td style="color:var(--'+['ok','B','C'][k]+')"><b>PC'+(k+1)+'</b></td><td>'+f(l[k])+'</td><td>'+pc(T[k])+'</td><td>'+pc(T.slice(0,k+1).reduce((a,b)=>a+b))+'</td></tr>').join('')+'</table>'+bars('Variance explained by each component',T,['PC1','PC2','PC3'],['var(--ok)','var(--B)','var(--C)'])+'<p class="f">The off-diagonals of the new covariance matrix are all zero, so the components share nothing.</p>';
+ if(step==6){const pr=[[0,1],[0,2],[1,2]];h=bars('Variance kept by two axes',[...pr.map(([a,b])=>(Cv[a][a]+Cv[b][b])/D.tot),T[0]+T[1]],['Keep V'+'1 & V2','Keep V1 & V3','Keep V2 & V3','Keep PC1 & PC2'],['var(--mut)','var(--mut)','var(--mut)','var(--ok)'])+'<p>PC1 + PC2 keep <b>'+pc(T[0]+T[1])+'</b> of the variance. Only <b>'+pc(T[2])+'</b> is lost.</p><p class="f">No pair of original variables, and no other plane, can keep more. PC1 takes the largest share, PC2 the largest of what remains, so together they maximize it.'+(T[2]>.15?' The cloud is fairly thick here, so PC3 still matters. Lower the thickness to see the gain grow.':'')+'</p>'}
+ if(step==7){const lw=(j,k)=>E[k][j],Y=[25,75,125],Z=[50,100];let s='';
+  for(let j=0;j<3;j++)for(let k=0;k<2;k++){const w=lw(j,k);s+='<path class="draw" pathLength="1" d="M62 '+Y[j]+'L238 '+Z[k]+'" stroke="'+(w>=0?'var(--ok)':'var(--bad)')+'" stroke-width="'+(1+8*Math.abs(w))+'" opacity=".75" fill="none"/>'}
+  s+=[0,1,2].map(j=>'<circle cx="46" cy="'+Y[j]+'" r="15" fill="var(--card)" stroke="var(--mut)"/><text x="46" y="'+(Y[j]+4)+'" text-anchor="middle" font-size="12" fill="var(--fg)">V'+(j+1)+'</text>').join('')+[0,1].map(k=>'<circle cx="254" cy="'+Z[k]+'" r="16" fill="var(--card)" stroke="var(--'+['ok','B'][k]+')" stroke-width="2"/><text x="254" y="'+(Z[k]+4)+'" text-anchor="middle" font-size="12" font-weight="700" fill="var(--'+['ok','B'][k]+')">PC'+(k+1)+'</text>').join('');
+  h='<svg viewBox="0 0 300 150" aria-label="Variables mapped to components">'+s+'</svg><p class="f" style="margin:4px 0">Line thickness = size of the weight. Green = positive, red = negative.</p><table><tr><th></th><th>PC1 weight</th><th>PC2 weight</th></tr>'+[0,1,2].map(j=>'<tr><td>V'+(j+1)+'</td><td>'+f(E[0][j])+'</td><td>'+f(E[1][j])+'</td></tr>').join('')+'</table><p class="f" style="margin:4px 0">'+eq(0)+'<br>'+eq(1)+'<br>(each V measured from its mean)</p>'}
+ $('side').innerHTML=h;$('pg').style.width=step/MAX*100+'%';$('pl').textContent='Step '+step+' of '+MAX;$('bP').disabled=!step;$('bN').disabled=step==MAX;if(step==MAX)stop();
+}
+/* control */
+const norm=a=>((a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;
+function go(n){const prev=step;step=Math.max(0,Math.min(MAX,n));sw=null;const T={...TG[step]};
+ if(step==7&&prev!=7){P.yaw=norm(P.yaw);cam0={yaw:P.yaw,pitch:P.pitch};T.yaw=0;T.pitch=0}
+ else if(prev==7&&step<7&&cam0){T.yaw=cam0.yaw;T.pitch=cam0.pitch}
+ tw={f:{...P},T,t0:performance.now(),dur:RM?10:1200};
+ if(step==3)startSweep(3,700);if(step==4)startSweep(4,1400);side()}
+function stop(){clearInterval(timer);timer=null;$('bA').textContent='Auto-play'}
+function loop(now){if(tw){const k=Math.min(1,(now-tw.t0)/tw.dur),e=ease(k);for(const q in tw.T)P[q]=tw.f[q]+(tw.T[q]-tw.f[q])*e;if(k>=1)tw=null}
+ updSweep(now);if($('spin').checked&&!drag&&step<7&&!RM)P.yaw+=.004;render();requestAnimationFrame(loop)}
+$('bN').onclick=()=>go(step+1);$('bP').onclick=()=>go(step-1);$('bR').onclick=()=>{stop();go(0)};
+$('bA').onclick=()=>{if(timer){stop();return}if(step==MAX)go(0);$('bA').textContent='Pause';timer=setInterval(()=>{if(tw||(sw&&!sw.done))return;if(step<MAX)go(step+1);if(step>=MAX)stop()},+$('sp').value)};
+$('sp').onchange=()=>{if(timer){stop();$('bA').click()}};
+function redo(){gen();side();if(step==3||step==4)startSweep(step,300)}
+$('fl').oninput=()=>{$('flv').textContent=(+$('fl').value/100).toFixed(2);redo()};
+$('bD').onclick=()=>{seed=Math.floor(Math.random()*9999);redo()};
+let lx,ly;const sv=$('sv');
+sv.onpointerdown=e=>{drag=1;lx=e.clientX;ly=e.clientY;sv.setPointerCapture(e.pointerId)};
+sv.onpointermove=e=>{if(!drag)return;P.yaw+=(e.clientX-lx)*.01;P.pitch=Math.max(-1.5,Math.min(1.5,P.pitch+(e.clientY-ly)*.01));lx=e.clientX;ly=e.clientY};
+sv.onpointerup=sv.onpointercancel=()=>{drag=0};
+gen();side();requestAnimationFrame(loop);
+</script></main></body></html>
